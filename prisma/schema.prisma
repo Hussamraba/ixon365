@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String?
+  role      String   @default("USER")
+  createdAt DateTime @default(now())
+
+  subscriptions Subscription[]
+  orders        Order[]
+  aiRequests    AIRequest[]
+  sessions      AssistantSession[]
+  customModelRequests CustomModelRequest[]
+}
+
+model AIModel {
+  id           String   @id @default(uuid())
+  name         String
+  description  String
+  price        Float
+  category     String   @default("GENERAL")
+  capabilities String[] @default([])
+  inputTypes   String[] @default(["text"])
+  endpoint     String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  subscriptions Subscription[]
+  aiRequests    AIRequest[]
+}
+
+model Subscription {
+  id        String   @id @default(uuid())
+  userId    String
+  modelId   String
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+
+  user  User   @relation(fields: [userId], references: [id])
+  model AIModel @relation(fields: [modelId], references: [id])
+}
+
+model Order {
+  id          String   @id @default(uuid())
+  userId      String
+  description String
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model AIRequest {
+  id        String   @id @default(uuid())
+  userId    String
+  modelId   String
+  input     String
+  output    String?
+  createdAt DateTime @default(now())
+
+  user  User   @relation(fields: [userId], references: [id])
+  model AIModel @relation(fields: [modelId], references: [id])
+}
+
+model AssistantSession {
+  id        String   @id @default(uuid())
+  userId    String
+  state     String   @default("IDLE")
+  data      Json?
+  createdAt DateTime @default(now())
+
+  user     User                @relation(fields: [userId], references: [id])
+  messages AssistantMessage[]
+}
+model AssistantMessage {
+  id        String   @id @default(uuid())
+  sessionId String
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+
+  session AssistantSession @relation(fields: [sessionId], references: [id])
+}
+model CustomModelRequest {
+  id              String   @id @default(uuid())
+  userId          String
+  title           String
+  description     String
+  detectedNeed    String
+  inputType        String   @default("text")
+  language         String   @default("mixed")
+  status          String   @default("pending")
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
