@@ -106,10 +106,19 @@ if (activeCustomStates.includes(session.state)) {
       classification,
     );
 
-    const recommendedModel =
-      classification.intent === 'MODEL_REQUEST'
-        ? await this.findBestModel(classification.searchQuery || message)
-        : null;
+    const modelSearchText = [
+      message,
+      classification.searchQuery || '',
+      classification.detectedNeed || '',
+    ].join(' ');
+
+    const shouldSearchModel =
+      classification.intent === 'MODEL_REQUEST' ||
+      contextFeatures.hasClearUseCase;
+
+    const recommendedModel = shouldSearchModel
+      ? await this.findBestModel(modelSearchText)
+      : null;
 
     const decision = this.decideNextAction({
       classification,
@@ -213,7 +222,9 @@ private parseUsers(message: string): number {
     if (classification.intent === 'MODEL_REQUEST') {
       scores.RECOMMEND_MODEL += 4;
     }
-
+    if (recommendedModel && contextFeatures.hasClearUseCase) {
+  scores.RECOMMEND_MODEL += 8;
+}
     if (contextFeatures.wantsVoice) scores.RECOMMEND_MODEL += 2;
     if (contextFeatures.wantsChatbot) scores.RECOMMEND_MODEL += 2;
     if (contextFeatures.wantsFileAnalysis) scores.RECOMMEND_MODEL += 2;
@@ -575,17 +586,37 @@ private parseUsers(message: string): number {
     ];
 
     const modelWords = [
-      'model',
-      'ai',
-      'chatbot',
-      'voice',
-      'موديل',
-      'ذكاء',
-      'شات',
-      'صوت',
-      'تحليل',
-      'assistant',
-    ];
+  'model',
+  'ai',
+  'chatbot',
+  'voice',
+  'pdf',
+  'file',
+  'document',
+  'resume',
+  'cv',
+  'summary',
+  'summarize',
+  'question',
+  'answer',
+  'موديل',
+  'ذكاء',
+  'شات',
+  'صوت',
+  'تحليل',
+  'ملف',
+  'ملفات',
+  'مستند',
+  'مستندات',
+  'تلخيص',
+  'لخص',
+  'ألخص',
+  'الخص',
+  'سؤال',
+  'أسئلة',
+  'اسئلة',
+  'assistant',
+];
 
     if (greetingWords.some((word) => normalized.includes(this.normalize(word)))) {
       return {
@@ -641,7 +672,7 @@ private parseUsers(message: string): number {
     };
   }
 
-  // =========================
+    // =========================
   // 🔍 MODEL MATCH
   // =========================
 
@@ -651,6 +682,7 @@ private parseUsers(message: string): number {
     });
 
     const normalizedMessage = this.normalize(message);
+    const expandedMessage = this.expandSearchQuery(normalizedMessage);
 
     let bestModel: any = null;
     let bestScore = 0;
@@ -666,29 +698,29 @@ private parseUsers(message: string): number {
 
       let score = 0;
 
-      for (const part of searchableParts) {
-        if (!part) continue;
+      const normalizedModelText = this.normalize(
+        searchableParts.filter(Boolean).join(' '),
+      );
 
-        const normalizedPart = this.normalize(String(part));
+      const expandedModelText = this.expandSearchQuery(normalizedModelText);
 
-        if (!normalizedPart) continue;
+      const messageWords = expandedMessage
+        .split(' ')
+        .filter((word) => word.length > 2);
 
-        if (normalizedMessage.includes(normalizedPart)) {
-          score += 5;
-        }
-
-        const words = normalizedPart.split(' ').filter((word) => word.length > 2);
-
-        for (const word of words) {
-          if (normalizedMessage.includes(word)) {
-            score += 1;
-          }
+      for (const word of messageWords) {
+        if (expandedModelText.includes(word)) {
+          score += 1;
         }
       }
 
-      if (this.hasVoiceNeed(normalizedMessage, model)) score += 3;
-      if (this.hasChatNeed(normalizedMessage, model)) score += 3;
-      if (this.hasFileNeed(normalizedMessage, model)) score += 3;
+      if (this.hasCvNeed(expandedMessage, model)) score += 6;
+      if (this.hasPdfNeed(expandedMessage, model)) score += 6;
+      if (this.hasVoiceNeed(expandedMessage, model)) score += 5;
+      if (this.hasChatNeed(expandedMessage, model)) score += 5;
+      if (this.hasMarketingNeed(expandedMessage, model)) score += 5;
+      if (this.hasDataNeed(expandedMessage, model)) score += 5;
+      if (this.hasFileNeed(expandedMessage, model)) score += 3;
 
       if (score > bestScore) {
         bestScore = score;
@@ -699,17 +731,220 @@ private parseUsers(message: string): number {
     return bestScore >= 2 ? bestModel : null;
   }
 
+  private expandSearchQuery(text: string): string {
+    const aliases: Record<string, string[]> = {
+      pdf: [
+        'pdf',
+        'ملف',
+        'ملفات',
+        'مستند',
+        'مستندات',
+        'وثيقة',
+        'وثائق',
+      ],
+      document: [
+        'document',
+        'documents',
+        'file',
+        'files',
+        'ملف',
+        'ملفات',
+        'مستند',
+        'مستندات',
+        'وثيقة',
+      ],
+      summary: [
+        'summary',
+        'summarize',
+        'تلخيص',
+        'لخص',
+        'ألخص',
+        'الخص',
+        'ملخص',
+      ],
+      question: [
+        'question',
+        'questions',
+        'answer',
+        'answers',
+        'qa',
+        'اسأل',
+        'أسأل',
+        'سؤال',
+        'اسئلة',
+        'أسئلة',
+        'اجوبة',
+        'أجوبة',
+      ],
+      resume: [
+        'resume',
+        'cv',
+        'career',
+        'job',
+        'سيرة',
+        'السيرة',
+        'وظيفة',
+        'وظائف',
+        'توظيف',
+      ],
+      chatbot: [
+        'chatbot',
+        'chat bot',
+        'chat',
+        'faq',
+        'customer support',
+        'شات',
+        'شات بوت',
+        'دردشة',
+        'محادثة',
+        'خدمة عملاء',
+        'دعم عملاء',
+      ],
+      voice: [
+        'voice',
+        'audio',
+        'speech',
+        'tts',
+        'stt',
+        'صوت',
+        'صوتي',
+        'تسجيل',
+        'كلام',
+      ],
+      marketing: [
+        'marketing',
+        'ads',
+        'content',
+        'social media',
+        'campaign',
+        'تسويق',
+        'اعلان',
+        'إعلان',
+        'اعلانات',
+        'إعلانات',
+        'محتوى',
+        'سوشال',
+      ],
+      data: [
+        'data',
+        'analytics',
+        'dashboard',
+        'excel',
+        'database',
+        'بيانات',
+        'تحليل بيانات',
+        'تحليل',
+        'داشبورد',
+        'اكسل',
+        'إكسل',
+        'قاعدة بيانات',
+      ],
+    };
+
+    let expanded = text;
+
+    for (const [mainWord, words] of Object.entries(aliases)) {
+      for (const word of words) {
+        const normalizedWord = this.normalize(word);
+
+        if (text.includes(normalizedWord)) {
+          expanded += ` ${mainWord} ${words.join(' ')}`;
+        }
+      }
+    }
+
+    return this.normalize(expanded);
+  }
+
+  private hasCvNeed(message: string, model: any): boolean {
+    const userNeedsCv =
+      message.includes('cv') ||
+      message.includes('resume') ||
+      message.includes('career') ||
+      message.includes('job') ||
+      message.includes('سيرة') ||
+      message.includes('وظيفة') ||
+      message.includes('وظائف') ||
+      message.includes('توظيف');
+
+    const modelSupportsCv =
+      model.category?.toLowerCase().includes('cv') ||
+      model.name?.toLowerCase().includes('resume') ||
+      model.name?.toLowerCase().includes('cv') ||
+      model.description?.toLowerCase().includes('resume') ||
+      model.description?.toLowerCase().includes('cv') ||
+      model.capabilities?.some((cap: string) => {
+        const c = this.normalize(cap);
+        return c.includes('resume') || c.includes('cv') || c.includes('career');
+      });
+
+    return userNeedsCv && modelSupportsCv;
+  }
+
+  private hasPdfNeed(message: string, model: any): boolean {
+    const userNeedsPdf =
+      message.includes('pdf') ||
+      message.includes('ملف') ||
+      message.includes('ملفات') ||
+      message.includes('مستند') ||
+      message.includes('مستندات') ||
+      message.includes('وثيقة') ||
+      message.includes('تلخيص') ||
+      message.includes('لخص') ||
+      message.includes('الخص') ||
+      message.includes('ألخص') ||
+      message.includes('أسئلة') ||
+      message.includes('اسئلة') ||
+      message.includes('سؤال');
+
+    const modelSupportsPdf =
+      model.category?.toLowerCase().includes('pdf') ||
+      model.name?.toLowerCase().includes('pdf') ||
+      model.description?.toLowerCase().includes('pdf') ||
+      model.description?.toLowerCase().includes('document') ||
+      model.capabilities?.some((cap: string) => {
+        const c = this.normalize(cap);
+        return (
+          c.includes('pdf') ||
+          c.includes('document') ||
+          c.includes('file') ||
+          c.includes('summary') ||
+          c.includes('question')
+        );
+      });
+
+    return userNeedsPdf && modelSupportsPdf;
+  }
+
   private hasVoiceNeed(message: string, model: any): boolean {
     const userNeedsVoice =
       message.includes('voice') ||
       message.includes('audio') ||
-      message.includes('صوت');
+      message.includes('speech') ||
+      message.includes('tts') ||
+      message.includes('stt') ||
+      message.includes('صوت') ||
+      message.includes('صوتي') ||
+      message.includes('تسجيل') ||
+      message.includes('كلام');
 
     const modelSupportsVoice =
       model.inputTypes?.includes('voice') ||
-      model.capabilities?.some((cap: string) =>
-        this.normalize(cap).includes('voice'),
-      );
+      model.category?.toLowerCase().includes('voice') ||
+      model.name?.toLowerCase().includes('voice') ||
+      model.name?.toLowerCase().includes('audio') ||
+      model.description?.toLowerCase().includes('voice') ||
+      model.description?.toLowerCase().includes('audio') ||
+      model.capabilities?.some((cap: string) => {
+        const c = this.normalize(cap);
+        return (
+          c.includes('voice') ||
+          c.includes('audio') ||
+          c.includes('speech') ||
+          c.includes('tts') ||
+          c.includes('stt')
+        );
+      });
 
     return userNeedsVoice && modelSupportsVoice;
   }
@@ -718,35 +953,134 @@ private parseUsers(message: string): number {
     const userNeedsChat =
       message.includes('chat') ||
       message.includes('chatbot') ||
+      message.includes('chat bot') ||
+      message.includes('faq') ||
       message.includes('شات') ||
-      message.includes('دردشة');
+      message.includes('دردشة') ||
+      message.includes('محادثة') ||
+      message.includes('بوت') ||
+      message.includes('خدمة عملاء') ||
+      message.includes('دعم عملاء');
 
     const modelSupportsChat =
       model.category?.toLowerCase().includes('chat') ||
-      model.capabilities?.some((cap: string) =>
-        this.normalize(cap).includes('chat'),
-      );
+      model.category?.toLowerCase().includes('chatbot') ||
+      model.name?.toLowerCase().includes('chat') ||
+      model.name?.toLowerCase().includes('chatbot') ||
+      model.description?.toLowerCase().includes('chat') ||
+      model.description?.toLowerCase().includes('chatbot') ||
+      model.description?.toLowerCase().includes('customer support') ||
+      model.capabilities?.some((cap: string) => {
+        const c = this.normalize(cap);
+        return (
+          c.includes('chat') ||
+          c.includes('chatbot') ||
+          c.includes('faq') ||
+          c.includes('customer support')
+        );
+      });
 
     return userNeedsChat && modelSupportsChat;
+  }
+
+  private hasMarketingNeed(message: string, model: any): boolean {
+    const userNeedsMarketing =
+      message.includes('marketing') ||
+      message.includes('ads') ||
+      message.includes('content') ||
+      message.includes('social media') ||
+      message.includes('campaign') ||
+      message.includes('تسويق') ||
+      message.includes('اعلان') ||
+      message.includes('إعلان') ||
+      message.includes('اعلانات') ||
+      message.includes('إعلانات') ||
+      message.includes('محتوى') ||
+      message.includes('سوشال');
+
+    const modelSupportsMarketing =
+      model.category?.toLowerCase().includes('marketing') ||
+      model.name?.toLowerCase().includes('marketing') ||
+      model.description?.toLowerCase().includes('marketing') ||
+      model.description?.toLowerCase().includes('ads') ||
+      model.description?.toLowerCase().includes('content') ||
+      model.capabilities?.some((cap: string) => {
+        const c = this.normalize(cap);
+        return (
+          c.includes('marketing') ||
+          c.includes('ads') ||
+          c.includes('content') ||
+          c.includes('social media') ||
+          c.includes('campaign')
+        );
+      });
+
+    return userNeedsMarketing && modelSupportsMarketing;
+  }
+
+  private hasDataNeed(message: string, model: any): boolean {
+    const userNeedsData =
+      message.includes('data') ||
+      message.includes('analytics') ||
+      message.includes('dashboard') ||
+      message.includes('excel') ||
+      message.includes('database') ||
+      message.includes('بيانات') ||
+      message.includes('تحليل') ||
+      message.includes('داشبورد') ||
+      message.includes('اكسل') ||
+      message.includes('إكسل') ||
+      message.includes('قاعدة بيانات');
+
+    const modelSupportsData =
+      model.category?.toLowerCase().includes('data') ||
+      model.category?.toLowerCase().includes('analytics') ||
+      model.name?.toLowerCase().includes('data') ||
+      model.name?.toLowerCase().includes('analytics') ||
+      model.description?.toLowerCase().includes('data') ||
+      model.description?.toLowerCase().includes('analytics') ||
+      model.description?.toLowerCase().includes('dashboard') ||
+      model.capabilities?.some((cap: string) => {
+        const c = this.normalize(cap);
+        return (
+          c.includes('data') ||
+          c.includes('analytics') ||
+          c.includes('dashboard') ||
+          c.includes('excel') ||
+          c.includes('database')
+        );
+      });
+
+    return userNeedsData && modelSupportsData;
   }
 
   private hasFileNeed(message: string, model: any): boolean {
     const userNeedsFile =
       message.includes('pdf') ||
       message.includes('file') ||
+      message.includes('files') ||
       message.includes('document') ||
+      message.includes('documents') ||
       message.includes('ملف') ||
-      message.includes('ملفات');
+      message.includes('ملفات') ||
+      message.includes('مستند') ||
+      message.includes('مستندات');
 
     const modelSupportsFile =
+      model.inputTypes?.includes('pdf') ||
+      model.inputTypes?.includes('file') ||
       model.capabilities?.some((cap: string) => {
         const c = this.normalize(cap);
-        return c.includes('pdf') || c.includes('file') || c.includes('document');
-      }) || false;
+        return (
+          c.includes('pdf') ||
+          c.includes('file') ||
+          c.includes('document')
+        );
+      }) ||
+      false;
 
     return userNeedsFile && modelSupportsFile;
   }
-
   // =========================
   // 💾 MEMORY
   // =========================
